@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>장기투자 트리플 타점 & 실시간 자동분석기 (네이버 금융 연동)</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: #1e293b;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-purple: #8b5cf6;
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --border: #334155;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕", sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-main); padding: 14px; }
+        .container { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+        
+        /* Top Navigation */
+        .top-header {
+            background: var(--card-bg);
+            padding: 14px 18px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-title h1 { font-size: 19px; font-weight: 700; color: #60a5fa; display: flex; align-items: center; gap: 8px; }
+        .header-title p { font-size: 12px; color: #34d399; margin-top: 2px; font-weight: 600; }
+        .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .input-group { display: flex; gap: 6px; }
+        .input-group input {
+            background: #090d16;
+            border: 1px solid #475569;
+            color: #fff;
+            padding: 7px 10px;
+            border-radius: 6px;
+            width: 130px;
+            font-size: 13px;
+            text-align: center;
+            font-weight: 700;
+        }
+        .btn {
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 13px;
+        }
+        .btn:hover { background: #2563eb; }
+        .btn-scanner {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #fff;
+            border: 1px solid #10b981;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+        }
+        .btn-scanner:hover { background: #059669; }
+        
+        .top-volume-container { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .top-vol-label { font-size: 12px; font-weight: 700; color: #fbbf24; margin-right: 2px; }
+        .btn-top-vol {
+            background: #27354a;
+            color: #e2e8f0;
+            border: 1px solid #475569;
+            padding: 6px 11px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: 0.15s;
+        }
+        .btn-top-vol:hover { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+        .rank-tag { background: #ef4444; color: #fff; font-size: 10px; padding: 1px 4px; border-radius: 4px; font-weight: 800; }
+        
+        .tf-selector { display: flex; background: #090d16; border-radius: 8px; padding: 3px; border: 1px solid #475569; }
+        .tf-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sub);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 13px;
+        }
+        .tf-btn.active { background: var(--accent-blue); color: #fff; }
+
+        /* Automated Screener Section (신규 실시간 자동분석 TOP 20) */
+        .screener-card {
+            display: none;
+            background: #131d31;
+            border: 1.5px solid #10b981;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            animation: fadeIn 0.2s ease-out;
+        }
+        .screener-card.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .screener-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .screener-title h2 { font-size: 16px; font-weight: 800; color: #34d399; display: flex; align-items: center; gap: 8px; }
+        .screener-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap; }
+        .meta-pill {
+            background: #090d16;
+            color: #93c5fd;
+            border: 1px solid #334155;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+        }
+        .meta-pill.green { color: #34d399; border-color: #10b981; }
+        .meta-pill.yellow { color: #fbbf24; border-color: #f59e0b; }
+        
+        .screener-tabs { display: flex; gap: 6px; }
+        .s-tab-btn {
+            background: #1e293b;
+            color: var(--text-sub);
+            border: 1px solid #475569;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .s-tab-btn.active { background: #10b981; color: #fff; border-color: #10b981; }
+        
+        .screener-table-wrap {
+            max-height: 380px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #090d16;
+        }
+        .screener-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            text-align: left;
+        }
+        .screener-table th {
+            position: sticky;
+            top: 0;
+            background: #1e293b;
+            color: #94a3b8;
+            font-weight: 700;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .screener-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #1e293b;
+            color: #cbd5e1;
+        }
+        .screener-table tr:hover td {
+            background: #1e293b;
+            cursor: pointer;
+        }
+        .stock-click-link { color: #60a5fa; font-weight: 700; text-decoration: none; }
+        .stock-click-link:hover { text-decoration: underline; color: #93c5fd; }
+        .tag-score-3 { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-size: 11px; }
+        .tag-score-2 { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-size: 11px; }
+        .tag-score-1 { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #64748b; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; }
+
+        /* Strategy & Investment Style Banner */
+        .style-banner {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #3b82f6;
+            border-radius: 12px;
+            padding: 12px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .style-badge-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .style-badge {
+            font-size: 13px;
+            font-weight: 800;
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge-day { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .badge-week { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+        .badge-month { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .style-desc { font-size: 13px; color: #cbd5e1; }
+        .style-meta { display: flex; gap: 14px; font-size: 12px; color: #94a3b8; flex-wrap: wrap; }
+        .style-meta span strong { color: #f1f5f9; }
+
+        /* Dashboard */
+        .dash-row { display: grid; grid-template-columns: 330px 1fr; gap: 14px; }
+        @media (max-width: 850px) { .dash-row { grid-template-columns: 1fr; } }
+        
+        .dash-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid var(--border);
+        }
+        .status-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            height: 100%;
+            gap: 8px;
+        }
+        .cur-price { font-size: 28px; font-weight: 800; color: #f8fafc; }
+        .date-badge {
+            background: #090d16;
+            color: #93c5fd;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid #3b82f6;
+        }
+        .badge {
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge-triple { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .badge-strong { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+        .badge-sell-tp { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .badge-stop-loss { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid #f97316; }
+        .badge-hold { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #64748b; }
+        .badge-error { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+
+        .checklist { display: flex; flex-direction: column; gap: 8px; }
+        .check-box {
+            background: #090d16;
+            padding: 9px 12px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-left: 4px solid #64748b;
+        }
+        .check-box.ok { border-left-color: #10b981; }
+        .chk-t-wrap { display: flex; align-items: center; gap: 8px; }
+        .chk-t { font-size: 13px; font-weight: 700; color: #f1f5f9; }
+        .chk-d { font-size: 11px; color: var(--text-sub); margin-top: 1px; }
+        .type-tag {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: #334155;
+            color: #93c5fd;
+        }
+        .chk-val { font-weight: 800; font-size: 13px; white-space: nowrap; margin-left: 8px; }
+        .chk-val.ok { color: #34d399; }
+        .chk-val.no { color: #94a3b8; }
+
+        /* Chart */
+        .chart-box {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .legends { display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* Tooltip bar on hover */
+        .hover-info-bar {
+            background: #090d16;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            display: flex;
+            gap: 16px;
+            margin-bottom: 8px;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            flex-wrap: wrap;
+        }
+        .hover-item strong { color: #f8fafc; }
+
+        canvas { display: block; width: 100%; border-radius: 6px; cursor: crosshair; }
+        #mainCanvas { height: 440px; }
+        #rsiCanvas { height: 110px; margin-top: 6px; }
+        .footer { text-align: center; font-size: 12px; color: #64748b; padding: 6px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="top-header">
+        <div class="header-title">
+            <h1>📈 장기투자 트리플 타점 분석기</h1>
+            <p id="envNotice">🟢 네이버 금융 실시간 실제 시세 연동</p>
+        </div>
+        <div class="controls">
+            <!-- New Auto-Scanner Trigger Button -->
+            <button class="btn-scanner" id="toggleScreenerBtn" onclick="toggleScreener()">🎯 실시간 자동분석 TOP 20</button>
+
+            <div class="input-group">
+                <input type="text" id="codeInput" value="005930" placeholder="종목명 or 코드">
+                <button class="btn" onclick="executeSearch()">조회</button>
+            </div>
+            
+            <div class="top-volume-container">
+                <span class="top-vol-label">🔥 오늘 거래량 TOP 3:</span>
+                <div id="topVolumeButtons" style="display: flex; gap: 6px;">
+                    <span style="font-size: 12px; color: var(--text-sub);">불러오는 중...</span>
+                </div>
+            </div>
+
+            <div class="tf-selector">
+                <button class="tf-btn active" id="tfM" onclick="switchTf('M')">월봉 (M)</button>
+                <button class="tf-btn" id="tfW" onclick="switchTf('W')">주봉 (W)</button>
+                <button class="tf-btn" id="tfD" onclick="switchTf('D')">일봉 (D)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Automated Screener Panel (요청하신 실시간 자동분석 TOP 20 패널) -->
+    <div class="screener-card" id="screenerPanel">
+        <div class="screener-header">
+            <div class="screener-title">
+                <h2>🎯 알고리즘 타점 부합 종목 자동분석 (거래량 순위 TOP 20)</h2>
+            </div>
+            <div class="screener-meta">
+                <span class="meta-pill green" id="screenerModeBadge">장중/장마감 모드 확인 중...</span>
+                <span class="meta-pill yellow">🛡️ 거래량 상위 순 정렬 (작전세력 위험 배제)</span>
+                <button class="btn" style="padding: 4px 10px; font-size: 11px;" onclick="loadScreener(true)">🔄 재스캔</button>
+                <button class="btn" style="padding: 4px 10px; font-size: 11px; background: #475569;" onclick="toggleScreener()">✕ 닫기</button>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div class="screener-tabs">
+                <button class="s-tab-btn active" id="sTabD" onclick="switchScreenerTf('D')">일봉 타점 TOP 20</button>
+                <button class="s-tab-btn" id="sTabW" onclick="switchScreenerTf('W')">주봉 타점 TOP 20</button>
+                <button class="s-tab-btn" id="sTabM" onclick="switchScreenerTf('M')">월봉 타점 TOP 20</button>
+            </div>
+            <div style="font-size: 11px; color: var(--text-sub);">
+                * 종목을 클릭하시면 해당 종목의 상세 캔들스틱 차트와 3대 타점이 즉시 분석됩니다.
+            </div>
+        </div>
+
+        <div class="screener-table-wrap">
+            <table class="screener-table">
+                <thead>
+                    <tr>
+                        <th style="width: 50px; text-align: center;">순위</th>
+                        <th>종목명 (코드)</th>
+                        <th style="text-align: right;">현재가</th>
+                        <th style="text-align: right;">거래량</th>
+                        <th style="text-align: center;">타점 판정</th>
+                        <th>포착 사유</th>
+                        <th style="text-align: center;">기준일</th>
+                    </tr>
+                </thead>
+                <tbody id="screenerTableBody">
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 24px; color: var(--text-sub);">
+                            자동분석 데이터를 불러오고 있습니다...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Strategy & Investment Style Banner -->
+    <div class="style-banner" id="styleBanner">
+        <div class="style-badge-wrap">
+            <div class="style-badge badge-month" id="styleBadge">🏛️ 장기 가치투자 & 대바닥 매집 전략</div>
+            <div class="style-desc" id="styleDesc">20월/60월 경기 사이클 저점 및 극단적 공포 국면에서 분할 매수하는 가치투자 매매</div>
+        </div>
+        <div class="style-meta">
+            <span>권장 보유기간: <strong id="metaHolding">6개월 ~ 수년</strong></span>
+            <span>목표 기대수익: <strong id="metaTarget">30%+ or 고배당 복리</strong></span>
+            <span>주요 리스크 관리: <strong id="metaRisk">월봉 60선 이탈 시 비중 조절</strong></span>
+        </div>
+    </div>
+
+    <div class="dash-row">
+        <div class="dash-card">
+            <div class="status-center">
+                <div style="font-size: 13px; color: var(--text-sub);" id="targetName">삼성전자 (005930)</div>
+                <div class="cur-price" id="targetPrice">조회 중...</div>
+                <div class="date-badge" id="targetDateBadge">기준월: 조회 중</div>
+                <div id="targetBadge" class="badge badge-hold">데이터 수신 중</div>
+                <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;" id="targetVerdict">네이버 금융 시세 서버와 통신하고 있습니다...</div>
+            </div>
+        </div>
+
+        <div class="dash-card">
+            <div style="font-size: 14px; font-weight: 700; color: #93c5fd; margin-bottom: 10px;" id="strategyHeader">월봉 3대 타점 알고리즘 진단</div>
+            <div class="checklist">
+                <div class="check-box" id="box1">
+                    <div>
+                        <div class="chk-t-wrap">
+                            <span class="chk-t" id="box1Title">1. 주요 이평선 지지 확인</span>
+                            <span class="type-tag" id="box1Tag">양봉/밑꼬리 확인</span>
+                        </div>
+                        <div class="chk-d" id="box1Desc">20월선 또는 60월선 터치 후 반등 여부</div>
+                    </div>
+                    <div class="chk-val" id="box1Val">-</div>
+                </div>
+                <div class="check-box" id="box2">
+                    <div>
+                        <div class="chk-t-wrap">
+                            <span class="chk-t" id="box2Title">2. RSI 모멘텀 리셋 지지</span>
+                            <span class="type-tag" id="box2Tag">과열 해소 눌림목</span>
+                        </div>
+                        <div class="chk-d" id="box2Desc">과열 해소 후 42~56 안정권 지지 반등</div>
+                    </div>
+                    <div class="chk-val" id="box2Val">-</div>
+                </div>
+                <div class="check-box" id="box3">
+                    <div>
+                        <div class="chk-t-wrap">
+                            <span class="chk-t" id="box3Title">3. 볼린저밴드 하단 & 이격도</span>
+                            <span class="type-tag" id="box3Tag">역사적 저평가 공포</span>
+                        </div>
+                        <div class="chk-d" id="box3Desc">볼린저 하단 반등 또는 극단적 과매도 공포 탈출</div>
+                    </div>
+                    <div class="chk-val" id="box3Val">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-box">
+        <div class="chart-header">
+            <div style="font-weight: 700; font-size: 14px;" id="chartTitle">캔들스틱 & 지표 차트</div>
+            <div class="legends">
+                <div class="legend-item"><div class="dot" style="background: #eab308;"></div>20선</div>
+                <div class="legend-item"><div class="dot" style="background: #a855f7;"></div>60선</div>
+                <div class="legend-item"><div class="dot" style="background: #10b981;"></div>120선</div>
+                <div class="legend-item"><div class="dot" style="background: #94a3b8;"></div>200선</div>
+                <div class="legend-item"><div class="dot" style="background: #0ea5e9;"></div>볼린저밴드</div>
+                <div class="legend-item"><span style="color: #34d399; font-weight: bold;">▲</span> 매수 타점</div>
+                <div class="legend-item"><span style="color: #ef4444; font-weight: bold;">▼</span> 익절 타점</div>
+                <div class="legend-item"><span style="color: #f97316; font-weight: bold;">✕</span> 손절 경고</div>
+            </div>
+        </div>
+        
+        <div class="hover-info-bar" id="hoverInfoBar">
+            <div class="hover-item" id="hovDate">일자/기간: -</div>
+            <div class="hover-item" id="hovOpen">시가: -</div>
+            <div class="hover-item" id="hovHigh">고가: -</div>
+            <div class="hover-item" id="hovLow">저가: -</div>
+            <div class="hover-item" id="hovClose">종가: -</div>
+            <div class="hover-item" id="hovVol">거래량: -</div>
+            <div class="hover-item" id="hovRsi">RSI: -</div>
+            <div class="hover-item" id="hovSignal">타점 판정: -</div>
+        </div>
+
+        <canvas id="mainCanvas"></canvas>
+        <div style="font-size: 11px; color: var(--text-sub); margin: 6px 0 2px 2px;">RSI (14) & 모멘텀 중립 기준선 (50)</div>
+        <canvas id="rsiCanvas"></canvas>
+    </div>
+
+    <div class="footer">
+        네이버 증권 공식 실시간 시세 연동 | 장중(전일완성봉)/장마감(금일완성봉) 자동분석 TOP 20 & 트리플 타점 시스템
+    </div>
+</div>
+
+<script>
+let stockCode = localStorage.getItem('naver_app_code') || '005930';
+let stockName = '삼성전자';
+let timeframe = localStorage.getItem('naver_app_tf') || 'M';
+let screenerTf = 'D';
+let candlesData = [];
+let hoverIndex = -1;
+
+document.getElementById('codeInput').value = stockCode;
+document.getElementById('codeInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') executeSearch();
+});
+
+refreshTfButtons();
+updateStrategyBanner();
+loadTopVolumeStocks();
+loadData();
+
+function toggleScreener() {
+    const p = document.getElementById('screenerPanel');
+    const btn = document.getElementById('toggleScreenerBtn');
+    p.classList.toggle('active');
+    if (p.classList.contains('active')) {
+        btn.innerText = '🎯 자동분석 TOP 20 닫기 ▲';
+        loadScreener(false);
+    } else {
+        btn.innerText = '🎯 실시간 자동분석 TOP 20 ▼';
+    }
+}
+
+function switchScreenerTf(tf) {
+    screenerTf = tf;
+    ['D', 'W', 'M'].forEach(t => {
+        const btn = document.getElementById('sTab' + t);
+        if (btn) {
+            if (t === tf) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+    });
+    loadScreener(false);
+}
+
+function loadScreener(forceRefresh = false) {
+    const tbody = document.getElementById('screenerTableBody');
+    if (forceRefresh) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 24px; color: #93c5fd;">
+            🔄 네이버 금융 실시간 시세 전수 스캔 중... (잠시만 기다려 주세요)</td></tr>`;
+    }
+    
+    fetch('/api/screener?tf=' + screenerTf + '&limit=20&refresh=' + forceRefresh)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== 'success') throw new Error("스캔 실패");
+            document.getElementById('screenerModeBadge').innerText = data.eval_mode;
+            renderScreenerTable(data.items);
+        })
+        .catch(err => {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">
+                자동분석 데이터를 불러오지 못했습니다. run.bat가 실행 중인지 확인해 주세요.</td></tr>`;
+        });
+}
+
+function renderScreenerTable(items) {
+    const tbody = document.getElementById('screenerTableBody');
+    if (!items || items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-sub);">
+            현재 조건에 맞는 종목이 없습니다.</td></tr>`;
+        return;
+    }
+    
+    let html = '';
+    items.forEach(it => {
+        let scoreBadge = '';
+        if (it.score === 3) scoreBadge = `<span class="tag-score-3">★★★ 특급매수 (3점)</span>`;
+        else if (it.score === 2) scoreBadge = `<span class="tag-score-2">★★ 강력매수 (2점)</span>`;
+        else scoreBadge = `<span class="tag-score-1">★ 관심타점 (1점)</span>`;
+        
+        const reasonsStr = (it.reasons && it.reasons.length > 0) ? it.reasons.join(', ') : '타점 대기/관찰';
+        const formattedVol = it.volume ? Math.round(it.volume).toLocaleString() + ' 주' : '-';
+        
+        html += `<tr onclick="selectFromScreener('${it.code}', '${it.name}', '${screenerTf}')">
+            <td style="text-align: center; font-weight: 800;">${it.rank}위</td>
+            <td><span class="stock-click-link">${it.name}</span> <span style="font-size: 11px; color: var(--text-sub);">(${it.code})</span></td>
+            <td style="text-align: right; font-weight: 700;">${it.price ? it.price.toLocaleString() : '-'} 원</td>
+            <td style="text-align: right; color: #f8fafc; font-weight: 700;">${formattedVol}</td>
+            <td style="text-align: center;">${scoreBadge}</td>
+            <td style="color: #93c5fd;">${reasonsStr}</td>
+            <td style="text-align: center; font-size: 11px; color: var(--text-sub);">${it.eval_date || '-'}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function selectFromScreener(code, name, tf) {
+    document.getElementById('codeInput').value = code;
+    stockCode = code;
+    stockName = name;
+    localStorage.setItem('naver_app_code', code);
+    switchTf(tf);
+    window.scrollTo({ top: 320, behavior: 'smooth' });
+}
+
+function loadTopVolumeStocks() {
+    fetch('/api/top_volume')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success' && data.items && data.items.length > 0) {
+                renderTopVolumeButtons(data.items);
+            }
+        })
+        .catch(err => {
+            renderTopVolumeButtons([
+                { code: '005930', name: '삼성전자' },
+                { code: '000660', name: 'SK하이닉스' },
+                { code: '102110', name: 'TIGER 200' }
+            ]);
+        });
+}
+
+function renderTopVolumeButtons(items) {
+    const container = document.getElementById('topVolumeButtons');
+    container.innerHTML = '';
+    items.forEach((item, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'btn-top-vol';
+        btn.innerHTML = `<span class="rank-tag">${idx + 1}위</span> ${item.name}`;
+        btn.onclick = () => selectStock(item.code, item.name);
+        container.appendChild(btn);
+    });
+}
+
+function selectStock(code, name) {
+    document.getElementById('codeInput').value = code;
+    stockCode = code;
+    stockName = name;
+    localStorage.setItem('naver_app_code', code);
+    loadData();
+}
+
+function switchTf(tf) {
+    timeframe = tf;
+    localStorage.setItem('naver_app_tf', tf);
+    refreshTfButtons();
+    updateStrategyBanner();
+    loadData();
+}
+
+function refreshTfButtons() {
+    ['M', 'W', 'D'].forEach(t => {
+        const btn = document.getElementById('tf' + t);
+        if (t === timeframe) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+}
+
+function updateStrategyBanner() {
+    const badge = document.getElementById('styleBadge');
+    const desc = document.getElementById('styleDesc');
+    const holding = document.getElementById('metaHolding');
+    const target = document.getElementById('metaTarget');
+    const risk = document.getElementById('metaRisk');
+    
+    if (timeframe === 'D') {
+        badge.className = 'style-badge badge-day';
+        badge.innerHTML = '⚡ 단기 스윙 & 단타 (Day / Short Swing)';
+        desc.innerText = '200일선 지지 및 단기 낙폭과대(RSI 과매도)에서 발생하는 V자/기술적 반등 공략';
+        holding.innerText = '1일 ~ 5일 (최대 2주 이내)';
+        target.innerText = '3% ~ 8% 내외 (빠른 회전)';
+        risk.innerText = '이평선 이탈 시 당일/익일 손절 원칙';
+    } else if (timeframe === 'W') {
+        badge.className = 'style-badge badge-week';
+        badge.innerHTML = '🌊 중기 스윙 & 파동 매매 (Medium-term Swing)';
+        desc.innerText = '50주선/120주선 경기선 지지와 모멘텀 재점화를 활용한 안정적 추세 편승 매매';
+        holding.innerText = '2주 ~ 3개월';
+        target.innerText = '10% ~ 25% 내외 (파동 완성)';
+        risk.innerText = '주봉 120주선 종가 이탈 시 비중 축소';
+    } else {
+        badge.className = 'style-badge badge-month';
+        badge.innerHTML = '🏛️ 장기 가치투자 & 대바닥 매집 (Long-term / Value)';
+        desc.innerText = '20월선/60월선 경기 사이클 대바닥 및 극단적 공포 국면에서 분할 매수하는 적립식 투자';
+        holding.innerText = '6개월 ~ 수년';
+        target.innerText = '30%+ 이상 또는 고배당 복리';
+        risk.innerText = '기업 펀더멘털 훼손 여부만 정기 점검';
+    }
+}
+
+function executeSearch() {
+    const inputVal = document.getElementById('codeInput').value.trim();
+    if (!inputVal) return;
+    stockCode = inputVal;
+    localStorage.setItem('naver_app_code', stockCode);
+    loadData();
+}
+
+function formatDisplayDate(dateStr, tf, isShort = false) {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return dateStr;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+
+    if (tf === 'D') {
+        return isShort ? `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}` : `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    } else if (tf === 'W') {
+        const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
+        const weekNumber = Math.ceil((day + firstDayOfMonth) / 7);
+        return isShort ? `${month}월 ${weekNumber}주` : `${year}년 ${month}월 ${weekNumber}주차`;
+    } else if (tf === 'M') {
+        return isShort ? `${String(year).slice(2)}년 ${month}월` : `${year}년 ${month}월`;
+    }
+    return dateStr;
+}
+
+function loadData() {
+    document.getElementById('targetPrice').innerText = "수신 중...";
+    document.getElementById('targetBadge').innerText = "통신 중...";
+    document.getElementById('targetBadge').className = "badge badge-hold";
+    
+    fetch('/api/chart?code=' + encodeURIComponent(stockCode) + '&tf=' + encodeURIComponent(timeframe))
+        .then(res => {
+            if (!res.ok) throw new Error("네이버 증권 서버 통신 에러");
+            return res.json();
+        })
+        .then(data => {
+            if (data.status !== 'success') {
+                showError(data.message || "데이터 조회 실패");
+                return;
+            }
+            stockName = data.meta.name;
+            stockCode = data.meta.code;
+            document.getElementById('codeInput').value = stockCode;
+            document.getElementById('envNotice').innerText = "🟢 네이버 금융 실시간 실제 시세 연동";
+            document.getElementById('envNotice').style.color = "#34d399";
+            candlesData = data.analysis;
+            renderAll();
+        })
+        .catch(err => {
+            showError("실시간 서버 미구동 상태입니다. run.bat를 실행해 주세요!");
+        });
+}
+
+function showError(msg) {
+    document.getElementById('targetPrice').innerText = "연결 필요";
+    document.getElementById('targetDateBadge').innerText = "기준일: 확인 불가";
+    const badge = document.getElementById('targetBadge');
+    badge.className = "badge badge-error";
+    badge.innerText = "서버 연결 점검";
+    document.getElementById('targetVerdict').innerText = msg;
+    document.getElementById('envNotice').innerText = "🔴 실시간 연결 점검 필요 (run.bat 확인)";
+    document.getElementById('envNotice').style.color = "#ef4444";
+    
+    const c1 = document.getElementById('mainCanvas');
+    const ctx1 = c1.getContext('2d');
+    ctx1.clearRect(0, 0, c1.width, c1.height);
+    ctx1.fillStyle = "#ef4444";
+    ctx1.font = "14px sans-serif";
+    ctx1.textAlign = "center";
+    ctx1.fillText("네이버 금융 실제 데이터를 수신하려면 폴더 내 run.bat를 실행해 주세요.", c1.width / 2, 200);
+}
+
+function renderAll() {
+    const tfNames = { 'M': '월봉', 'W': '주봉', 'D': '일봉' };
+    document.getElementById('targetName').innerText = stockName + " (" + stockCode + ")";
+    document.getElementById('strategyHeader').innerText = tfNames[timeframe] + " 3대 타점 알고리즘 진단";
+    document.getElementById('chartTitle').innerText = stockName + " " + tfNames[timeframe] + " 캔들스틱 차트";
+
+    if (!candlesData || candlesData.length === 0) return;
+    const latest = candlesData[candlesData.length - 1];
+    
+    document.getElementById('targetPrice').innerText = latest.close.toLocaleString() + " 원";
+    
+    const formattedDate = formatDisplayDate(latest.date, timeframe, false);
+    const dateLabelType = timeframe === 'D' ? '기준일' : (timeframe === 'W' ? '기준주' : '기준월');
+    document.getElementById('targetDateBadge').innerText = `최신 ${dateLabelType}: ${formattedDate}`;
+
+    // 단일 핵심 뱃지: 매수 / 익절 / 손절 / 관망
+    const badge = document.getElementById('targetBadge');
+    badge.className = 'badge';
+    if (latest.is_stop_loss) {
+        badge.classList.add('badge-stop-loss');
+        badge.innerText = '⚠️ 지지선 이탈 (손절/비중축소)';
+    } else if (latest.sell_score >= 2) {
+        badge.classList.add('badge-sell-tp');
+        badge.innerText = '🔥 과열 익절 타점 (분할 매도)';
+    } else if (latest.signal === 'TRIPLE_BUY') {
+        badge.classList.add('badge-triple');
+        badge.innerText = '★★★ 특급 매수 타점 (3개 일치)';
+    } else if (latest.signal === 'STRONG_BUY') {
+        badge.classList.add('badge-strong');
+        badge.innerText = '★★ 강력 매수 타점 (2개 일치)';
+    } else {
+        badge.classList.add('badge-hold');
+        badge.innerText = '관망 / 안정 보유';
+    }
+
+    let summary = `현재 캔들 적합도: 매수 ${latest.score}/3점, 매도 ${latest.sell_score}/3점 | `;
+    if (latest.is_stop_loss) summary += "지지선 이탈 경고! 손절 또는 비중 축소 필요";
+    else if (latest.sell_score >= 2) summary += "과열 구간 도달! " + latest.reasons_sell.join(' + ');
+    else if (latest.reasons_buy.length > 0) summary += latest.reasons_buy.join(' + ');
+    else summary += "3대 지표 중첩 대기 중 (추격 매수 지양)";
+    document.getElementById('targetVerdict').innerText = summary;
+
+    updateCheck('box1', latest.r1_support, 
+        timeframe === 'M' ? '1. 20월선 / 60월선 지지' : (timeframe === 'W' ? '1. 50주선 / 120주선 지지' : '1. 200일선 / 120일선 리테스트'),
+        timeframe === 'M' ? '장기 대세 경기선' : (timeframe === 'W' ? '중기 추세 생명선' : '단기 기관 수급선'),
+        latest.r1_support ? '양봉/밑꼬리 지지 확인 ✓' : '이평선 지지 미도달');
+
+    updateCheck('box2', latest.r2_rsi, 
+        "2. RSI(" + (latest.rsi || '--') + ") 모멘텀 리셋", 
+        timeframe === 'M' ? '장기 건전 조정' : (timeframe === 'W' ? '중기 파동 스윙' : '단타/스윙 과매도'),
+        latest.r2_rsi ? '과열 해소 후 반등 확인 ✓' : 'RSI 타점 미충족');
+
+    updateCheck('box3', latest.r3_bb_disp, 
+        '3. 볼린저밴드 하단 & 이격도', 
+        timeframe === 'M' ? '역사적 저평가' : (timeframe === 'W' ? '중기 바닥권' : '초단기 V자 반등'),
+        latest.r3_bb_disp ? '밴드 하단 지지 or 이격 과매도' : '정상 범위 주가');
+
+    updateHoverBar(latest);
+    drawMainCandles();
+    drawRsi();
+}
+
+function updateCheck(id, ok, title, tagText, desc) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const tEl = document.getElementById(id + 'Title');
+    if (tEl) tEl.innerText = title;
+    const tagEl = document.getElementById(id + 'Tag');
+    if (tagEl) tagEl.innerText = tagText;
+    const dEl = document.getElementById(id + 'Desc');
+    if (dEl) dEl.innerText = desc;
+    box.className = 'check-box ' + (ok ? 'ok' : '');
+    const val = document.getElementById(id + 'Val');
+    if (val) {
+        val.className = 'chk-val ' + (ok ? 'ok' : 'no');
+        val.innerText = ok ? '충족 ✓' : '미충족';
+    }
+}
+
+function updateHoverBar(c) {
+    if (!c) return;
+    const dateLabel = formatDisplayDate(c.date, timeframe, false);
+    document.getElementById('hovDate').innerHTML = `기간/일자: <strong>${dateLabel}</strong>`;
+    document.getElementById('hovOpen').innerHTML = `시가: <strong>${c.open.toLocaleString()}</strong>`;
+    document.getElementById('hovHigh').innerHTML = `고가: <strong>${c.high.toLocaleString()}</strong>`;
+    document.getElementById('hovLow').innerHTML = `저가: <strong>${c.low.toLocaleString()}</strong>`;
+    document.getElementById('hovClose').innerHTML = `종가: <strong>${c.close.toLocaleString()}</strong>`;
+    document.getElementById('hovVol').innerHTML = `거래량: <strong>${c.volume.toLocaleString()}</strong>`;
+    document.getElementById('hovRsi').innerHTML = `RSI: <strong>${c.rsi || '-'}</strong>`;
+    
+    let signalLabel = '관망';
+    if (c.is_stop_loss) signalLabel = '<span style="color:#f97316;">⚠️ 손절이탈</span>';
+    else if (c.sell_score >= 2) signalLabel = '<span style="color:#ef4444;">▼ 과열익절</span>';
+    else if (c.score === 3) signalLabel = '<span style="color:#10b981;">▲ 특급매수 (3점)</span>';
+    else if (c.score === 2) signalLabel = '<span style="color:#3b82f6;">▲ 강력매수 (2점)</span>';
+    
+    document.getElementById('hovSignal').innerHTML = `타점 판정: <strong>${signalLabel}</strong>`;
+}
+
+function drawMainCandles() {
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!candlesData || candlesData.length === 0) return;
+
+    const visibleCount = 60;
+    const candles = candlesData.slice(-visibleCount);
+    const num = candles.length;
+    let minP = Infinity, maxP = -Infinity;
+    candles.forEach(c => {
+        if (c.low < minP) minP = c.low;
+        if (c.high > maxP) maxP = c.high;
+        if (c.bb_lower && c.bb_lower < minP) minP = c.bb_lower;
+        if (c.bb_upper && c.bb_upper > maxP) maxP = c.bb_upper;
+    });
+    const pad = (maxP - minP) * 0.08;
+    minP -= pad; maxP += pad;
+
+    const xAxisH = 26;
+    const chartAreaH = h - xAxisH;
+    const getY = p => chartAreaH - ((p - minP) / (maxP - minP)) * chartAreaH;
+    const candleW = (w - 70) / num;
+
+    // Price Grid Lines & Labels
+    ctx.strokeStyle = '#26334d'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+        const y = 15 + ((chartAreaH - 20) / 4) * i;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - 65, y); ctx.stroke();
+        const priceLabel = Math.round(maxP - (i / 4) * (maxP - minP));
+        ctx.fillStyle = '#64748b'; ctx.font = '11px sans-serif';
+        ctx.fillText(priceLabel.toLocaleString(), w - 60, y + 4);
+    }
+
+    // X-Axis Date Labels
+    const tickInterval = Math.max(1, Math.floor(num / 6));
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i < num; i += tickInterval) {
+        const c = candles[i];
+        const x = i * candleW + candleW / 2;
+        ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, chartAreaH); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillText(formatDisplayDate(c.date, timeframe, true), x, h - 8);
+    }
+    if (num > 0) {
+        const lastX = (num - 1) * candleW + candleW / 2;
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillText(formatDisplayDate(candles[num - 1].date, timeframe, true), lastX, h - 8);
+    }
+
+    // Bollinger Band
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.07)';
+    ctx.beginPath();
+    candles.forEach((c, idx) => {
+        if (!c.bb_upper) return;
+        const x = idx * candleW + candleW / 2;
+        const y = getY(c.bb_upper);
+        if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    for (let idx = candles.length - 1; idx >= 0; idx--) {
+        const c = candles[idx];
+        if (!c.bb_lower) continue;
+        const x = idx * candleW + candleW / 2;
+        ctx.lineTo(x, getY(c.bb_lower));
+    }
+    ctx.closePath(); ctx.fill();
+
+    // MAs
+    const drawLine = (valFn, col) => {
+        ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
+        let s = false;
+        candles.forEach((c, idx) => {
+            const v = valFn(c);
+            if (v) {
+                const x = idx * candleW + candleW / 2;
+                const y = getY(v);
+                if (!s) { ctx.moveTo(x, y); s = true; } else ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+    };
+    drawLine(c => c.ma20, '#eab308');
+    drawLine(c => c.ma60, '#a855f7');
+    drawLine(c => c.ma120, '#10b981');
+    drawLine(c => c.ma200, '#94a3b8');
+
+    // Draw Candles & Buy/Sell/Stop Markers
+    candles.forEach((c, idx) => {
+        const x = idx * candleW + candleW / 2;
+        const oY = getY(c.open), cY = getY(c.close);
+        const hY = getY(c.high), lY = getY(c.low);
+        const isUp = c.close >= c.open;
+        const color = isUp ? '#ef4444' : '#3b82f6';
+
+        ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(x, hY); ctx.lineTo(x, lY); ctx.stroke();
+
+        const bTop = Math.min(oY, cY);
+        const bH = Math.max(Math.abs(cY - oY), 2);
+        const bw = Math.max(candleW * 0.7, 3);
+        ctx.fillStyle = color;
+        ctx.fillRect(x - bw / 2, bTop, bw, bH);
+
+        // 1. 매수 타점 마커 (▲ 초록색 삼각형 - 캔들 아래)
+        if (c.score >= 2) {
+            ctx.fillStyle = c.score === 3 ? '#10b981' : '#3b82f6';
+            ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('▲', x, lY + 14);
+            if (c.score === 3) {
+                ctx.font = 'bold 9px sans-serif'; ctx.fillText('★3', x, lY + 24);
+            }
+        }
+
+        // 2. 과열 익절 타점 마커 (▼ 빨간색 역삼각형 - 캔들 위)
+        if (c.sell_score >= 2) {
+            ctx.fillStyle = '#ef4444';
+            ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('▼', x, hY - 8);
+            ctx.font = 'bold 9px sans-serif'; ctx.fillText('익절', x, hY - 18);
+        }
+
+        // 3. 손절/추세 이탈 경고 마커 (✕ 주황색 엑스)
+        if (c.is_stop_loss) {
+            ctx.fillStyle = '#f97316';
+            ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('✕', x, lY + 14);
+            ctx.font = 'bold 9px sans-serif'; ctx.fillText('손절', x, lY + 24);
+        }
+    });
+
+    // Crosshair highlight
+    if (hoverIndex >= 0 && hoverIndex < candles.length) {
+        const hovX = hoverIndex * candleW + candleW / 2;
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(hovX, 0);
+        ctx.lineTo(hovX, chartAreaH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+function drawRsi() {
+    const canvas = document.getElementById('rsiCanvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!candlesData || candlesData.length === 0) return;
+    const candles = candlesData.slice(-60);
+    const num = candles.length;
+    const candleW = (w - 70) / num;
+    const getY = r => h - (r / 100) * h;
+
+    [30, 50, 70].forEach(lvl => {
+        const y = getY(lvl);
+        ctx.strokeStyle = lvl === 50 ? '#93c5fd' : '#334155';
+        ctx.setLineDash(lvl === 50 ? [4, 4] : [2, 2]);
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - 65, y); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#64748b'; ctx.font = '10px sans-serif';
+        ctx.fillText(lvl.toString(), w - 60, y + 3);
+    });
+
+    ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.8; ctx.beginPath();
+    let s = false;
+    candles.forEach((c, idx) => {
+        if (c.rsi) {
+            const x = idx * candleW + candleW / 2;
+            const y = getY(c.rsi);
+            if (!s) { ctx.moveTo(x, y); s = true; } else ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+}
+
+// Mouse interaction
+const mainCanvas = document.getElementById('mainCanvas');
+mainCanvas.addEventListener('mousemove', e => {
+    if (!candlesData || candlesData.length === 0) return;
+    const rect = mainCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const visibleCount = 60;
+    const candles = candlesData.slice(-visibleCount);
+    const candleW = (rect.width - 70) / candles.length;
+    const idx = Math.floor(x / candleW);
+    if (idx >= 0 && idx < candles.length) {
+        hoverIndex = idx;
+        updateHoverBar(candles[idx]);
+        drawMainCandles();
+    }
+});
+
+mainCanvas.addEventListener('mouseleave', () => {
+    hoverIndex = -1;
+    if (candlesData.length > 0) {
+        updateHoverBar(candlesData[candlesData.length - 1]);
+    }
+    drawMainCandles();
+});
+
+window.addEventListener('resize', () => { drawMainCandles(); drawRsi(); });
+</script>
+</body>
+</html>
