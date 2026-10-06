@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>장기투자 트리플 타점 & 실시간 자동분석기 (네이버 금융 연동)</title>
+    <title>장기투자 트리플 타점 & 실시간 자동분석기 (토스증권 API 연동)</title>
     <style>
         :root {
             --bg-dark: #0f172a;
@@ -107,7 +107,7 @@
         }
         .tf-btn.active { background: var(--accent-blue); color: #fff; }
 
-        /* Automated Screener Section (신규 실시간 자동분석 TOP 20) */
+        /* Automated Screener Section (신규 수급 복합분석 TOP 20) */
         .screener-card {
             display: none;
             background: #131d31;
@@ -332,7 +332,18 @@
         #mainCanvas { height: 440px; }
         #rsiCanvas { height: 110px; margin-top: 6px; }
         .footer { text-align: center; font-size: 12px; color: #64748b; padding: 6px; }
-    </style>
+    
+.supply-panel { background:var(--card-bg); border:1px solid var(--border); border-radius:14px; padding:20px; margin:18px 0; }
+.supply-panel h2 { font-size:18px; margin:0 0 10px; }
+.supply-panel p { color:var(--text-sub); font-size:12px; line-height:1.7; }
+.supply-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0; }
+.supply-metric { background:var(--bg-dark); padding:12px; border-radius:8px; }
+.supply-metric span { display:block; color:var(--text-sub); font-size:11px; margin-bottom:6px; }
+.supply-metric strong { font-size:18px; }
+.live-status { font-size:20px; font-weight:700; color:#93c5fd; margin:12px 0; }
+#liveMiniChart { display:block; width:100%; height:180px; background:var(--bg-dark); border-radius:8px; }
+#liveChecks { font-size:12px; line-height:1.9; }
+</style>
 </head>
 <body>
 
@@ -340,11 +351,11 @@
     <div class="top-header">
         <div class="header-title">
             <h1>📈 장기투자 트리플 타점 분석기</h1>
-            <p id="envNotice">🟢 네이버 금융 실시간 실제 시세 연동</p>
+            <p id="envNotice">토스증권 API 시세 · 데이터 기준 시각 확인</p>
         </div>
         <div class="controls">
             <!-- New Auto-Scanner Trigger Button -->
-            <button class="btn-scanner" id="toggleScreenerBtn" onclick="toggleScreener()">🎯 실시간 자동분석 TOP 20</button>
+            <button class="btn-scanner" id="toggleScreenerBtn" onclick="toggleScreener()">🎯 수급 복합분석 TOP 20</button>
 
             <div class="input-group">
                 <input type="text" id="codeInput" value="005930" placeholder="종목명 or 코드">
@@ -352,7 +363,7 @@
             </div>
             
             <div class="top-volume-container">
-                <span class="top-vol-label">🔥 오늘 거래량 TOP 3:</span>
+                <span class="top-vol-label">관심 종목 바로가기:</span>
                 <div id="topVolumeButtons" style="display: flex; gap: 6px;">
                     <span style="font-size: 12px; color: var(--text-sub);">불러오는 중...</span>
                 </div>
@@ -366,7 +377,7 @@
         </div>
     </div>
 
-    <!-- Automated Screener Panel (요청하신 실시간 자동분석 TOP 20 패널) -->
+    <!-- Automated Screener Panel (요청하신 수급 복합분석 TOP 20 패널) -->
     <div class="screener-card" id="screenerPanel">
         <div class="screener-header">
             <div class="screener-title">
@@ -374,7 +385,7 @@
             </div>
             <div class="screener-meta">
                 <span class="meta-pill green" id="screenerModeBadge">장중/장마감 모드 확인 중...</span>
-                <span class="meta-pill yellow">🛡️ 거래량 상위 순 정렬 (작전세력 위험 배제)</span>
+                <span class="meta-pill yellow">🛡️ 관심 20종목 · 수급 60% + 기술적 지표 40%</span>
                 <button class="btn" style="padding: 4px 10px; font-size: 11px;" onclick="loadScreener(true)">🔄 재스캔</button>
                 <button class="btn" style="padding: 4px 10px; font-size: 11px; background: #475569;" onclick="toggleScreener()">✕ 닫기</button>
             </div>
@@ -415,6 +426,26 @@
         </div>
     </div>
 
+
+    <section class="supply-panel" aria-label="수급 복합 타점 분석">
+        <h2>수급 복합 타점 분석</h2>
+        <div id="flowSignal" class="live-status">시세·수급 연결 대기</div>
+        <div id="flowMetrics" class="supply-grid"></div>
+        <p id="flowMeta">외국인·기관 수급 60% + 기존 기술적 매수조건 40%. 데이터가 부족하면 종합판정을 보류합니다.</p>
+        <p>최신 시점의 종합판정입니다. 과거 차트 화살표는 기존 기술적 조건만 반영하며, 매도·손절 경고는 별도로 확인하세요.</p>
+        <button class="btn" id="toggleLiveBtn" onclick="toggleLive()">⚡ 실시간 스캘핑 분석 열기</button>
+    </section>
+    <section class="supply-panel" id="livePanel" hidden aria-label="실시간 스캘핑 분석">
+        <h2>⚡ 실시간 스캘핑 관찰</h2>
+        <p>현재 선택 종목 · 체결/호가는 서버에서 실시간 수신 · 화면은 2초마다 갱신 · 분봉은 최대 20초 캐시</p>
+        <div id="liveSignal" class="live-status" aria-live="polite">실시간 연결 대기</div>
+        <div id="liveMetrics" class="supply-grid"></div>
+        <canvas id="liveMiniChart" aria-label="당일 최근 60개 분봉 종가 흐름"></canvas>
+        <div id="liveChecks"></div>
+        <p id="liveMeta"></p>
+        <p>체결강도는 제공하지 않습니다. 호가잔량은 실제 매수체결량이 아니며 빠르게 취소될 수 있습니다. 점수는 수익 확률이 아닌 검증 전 조건 충족도입니다.</p>
+    </section>
+
     <!-- Strategy & Investment Style Banner -->
     <div class="style-banner" id="styleBanner">
         <div class="style-badge-wrap">
@@ -435,7 +466,7 @@
                 <div class="cur-price" id="targetPrice">조회 중...</div>
                 <div class="date-badge" id="targetDateBadge">기준월: 조회 중</div>
                 <div id="targetBadge" class="badge badge-hold">데이터 수신 중</div>
-                <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;" id="targetVerdict">네이버 금융 시세 서버와 통신하고 있습니다...</div>
+                <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;" id="targetVerdict">토스증권 API 시세 서버와 통신하고 있습니다...</div>
             </div>
         </div>
 
@@ -508,7 +539,7 @@
     </div>
 
     <div class="footer">
-        네이버 증권 공식 실시간 시세 연동 | 장중(전일완성봉)/장마감(금일완성봉) 자동분석 TOP 20 & 트리플 타점 시스템
+        토스증권 API 시세 · 원본 데이터 시각 확인 | 최신봉·당일 잠정 수급 반영 | 과거 화살표는 기존 기술적 지표 분석
     </div>
 </div>
 
@@ -519,6 +550,97 @@ let timeframe = localStorage.getItem('naver_app_tf') || 'M';
 let screenerTf = 'D';
 let candlesData = [];
 let hoverIndex = -1;
+
+let liveOpen = false, liveBusy = false, liveEpoch = 0;
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function numberText(value, suffix='') {
+    return value == null ? '미제공' : Number(value).toLocaleString('ko-KR', {maximumFractionDigits:3}) + suffix;
+}
+function metrics(target, entries) {
+    const root = document.getElementById(target); root.replaceChildren();
+    for (const [label,value] of entries) {
+        const box = document.createElement('div'); box.className='supply-metric';
+        const caption = document.createElement('span'); caption.textContent=label;
+        const content = document.createElement('strong'); content.textContent=value;
+        box.append(caption,content); root.append(box);
+    }
+}
+function renderFlow(data) {
+    const f = data.flow || {};
+    const combined = f.combined;
+    const last = data.analysis[data.analysis.length-1];
+    let verdict = combined == null ? '수급 종합판정 보류' : combined >= 70 ? '수급·기술 조건 동반 관심' : combined >= 40 ? '일부 조건 충족 · 관찰' : '관망';
+    if (last.is_stop_loss) verdict = '추세 이탈 경고 · 신규 진입 보류';
+    else if (last.sell_score >= 2) verdict = '기술적 과열 경고 · 신규 진입 보류';
+    document.getElementById('flowSignal').textContent = verdict + (combined == null ? '' : ' · '+combined+'/100');
+    metrics('flowMetrics',[
+        ['외국인 순매수',numberText(f.foreigner,'주')], ['기관 순매수',numberText(f.institution,'주')],
+        ['최근 5거래일 합산',numberText(f.net5,'주')], ['당일 거래량 대비 순매수',numberText(f.net_volume_pct,'%')],
+        ['수급 조건 충족도',numberText(f.score,'/100')], ['기술적 매수조건',last.score+'/3']]);
+    document.getElementById('flowMeta').textContent = [
+        f.reason, '수급 기준일 '+(f.date || '미제공'),
+        f.provisional ? '장중 잠정치 · 저녁 이후 정정 가능' : '개인 수급 포함 기록 · 사후 정정 가능',
+        '수급 갱신 '+(f.updated_at || '미제공'), '서버 수신 '+data.received_at,
+        data.history_note, data.bar_note, f.warning].filter(Boolean).join(' | ');
+}
+function toggleLive() {
+    liveOpen = !liveOpen; liveEpoch++;
+    document.getElementById('livePanel').hidden = !liveOpen;
+    document.getElementById('toggleLiveBtn').textContent = liveOpen ? '⚡ 실시간 스캘핑 분석 닫기' : '⚡ 실시간 스캘핑 분석 열기';
+    if(liveOpen) refreshLive();
+}
+function drawLiveChart(bars) {
+    const canvas = document.getElementById('liveMiniChart');
+    const width = canvas.clientWidth || 700, height = 180, ratio=window.devicePixelRatio || 1;
+    canvas.width = width*ratio; canvas.height=height*ratio;
+    const ctx=canvas.getContext('2d'); ctx.scale(ratio,ratio); ctx.clearRect(0,0,width,height);
+    if(!bars || !bars.length) return;
+    const prices=bars.map(b=>b.close), lo=Math.min(...prices), hi=Math.max(...prices), range=hi-lo || 1;
+    ctx.strokeStyle='#60a5fa'; ctx.lineWidth=2; ctx.beginPath();
+    prices.forEach((price,i)=>{ const x=12+i/Math.max(1,prices.length-1)*(width-24), y=height-32-(price-lo)/range*(height-54); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    ctx.stroke(); ctx.fillStyle='#94a3b8'; ctx.font='11px sans-serif';
+    ctx.fillText(numberText(hi)+' 원',12,15);
+    ctx.fillText(bars[0].timestamp.slice(11,16)+' → '+bars[bars.length-1].timestamp.slice(11,16)+' · 분봉 종가',12,height-10);
+}
+async function refreshLive() {
+    if(!liveOpen || liveBusy || document.hidden) return;
+    liveBusy=true;
+    const code=stockCode, epoch=liveEpoch;
+    try {
+        const res=await fetch('/api/live?code='+encodeURIComponent(code), {signal:AbortSignal.timeout(45000)});
+        const data=await res.json();
+        if(code!==stockCode || epoch!==liveEpoch || !liveOpen) return;
+        if(data.status!=='success') throw new Error(data.message || '실시간 조회 실패');
+        const l=data.live;
+        document.getElementById('liveSignal').textContent = l.signal+(l.score==null?'':' · '+l.score+'/100');
+        metrics('liveMetrics',[
+            ['최근 체결가',numberText(l.price,'원')], ['완료 20분봉 근사 VWAP',numberText(l.vwap20,'원')],
+            ['완료 분봉 거래량 배수',numberText(l.volume_ratio,'배')], ['상위 3호가 매수잔량 비중',numberText(l.bid_share,'%')],
+            ['최우선 호가 스프레드',numberText(l.spread_pct,'%')]]);
+        const checks=document.getElementById('liveChecks'); checks.replaceChildren();
+        for(const item of l.checks) { const row=document.createElement('div'); row.textContent=(item.passed==null?'— ':item.passed?'✓ ':'· ')+item.label; checks.append(row); }
+        document.getElementById('liveMeta').textContent = [
+            l.stream_connected?'체결·호가 구독 연결됨':'구독 대기/중단', l.stream_message,
+            '체결 기준 '+(l.trade_at || '미제공'), '호가 기준 '+(l.book_at || '미제공'),
+            '분봉 기준 '+(l.candle_at || '미제공'), '서버 수신 '+l.received_at, l.note].filter(Boolean).join(' | ');
+        drawLiveChart(l.bars);
+    } catch(err) {
+        if(code!==stockCode || epoch!==liveEpoch || !liveOpen) return;
+        document.getElementById('liveSignal').textContent='데이터 연결 실패 · 판단 보류';
+        document.getElementById('liveMeta').textContent=err.message;
+        document.getElementById('liveMetrics').replaceChildren();
+        document.getElementById('liveChecks').replaceChildren(); drawLiveChart([]);
+    } finally { liveBusy=false; }
+}
+setInterval(refreshLive,2000);
+setInterval(()=>{ if(!document.hidden) {
+    loadData();
+    if(document.getElementById('screenerPanel').classList.contains('active')) loadScreener(false);
+}},60000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) { loadData(); refreshLive(); } });
+
 
 document.getElementById('codeInput').value = stockCode;
 document.getElementById('codeInput').addEventListener('keydown', e => {
@@ -538,7 +660,7 @@ function toggleScreener() {
         btn.innerText = '🎯 자동분석 TOP 20 닫기 ▲';
         loadScreener(false);
     } else {
-        btn.innerText = '🎯 실시간 자동분석 TOP 20 ▼';
+        btn.innerText = '🎯 수급 복합분석 TOP 20 ▼';
     }
 }
 
@@ -555,22 +677,29 @@ function switchScreenerTf(tf) {
 }
 
 function loadScreener(forceRefresh = false) {
+    const requestScreenerTf = screenerTf;
     const tbody = document.getElementById('screenerTableBody');
     if (forceRefresh) {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 24px; color: #93c5fd;">
-            🔄 네이버 금융 실시간 시세 전수 스캔 중... (잠시만 기다려 주세요)</td></tr>`;
+            🔄 관심 20종목 수급 복합분석 중... (잠시만 기다려 주세요)</td></tr>`;
     }
     
     fetch('/api/screener?tf=' + screenerTf + '&limit=20&refresh=' + forceRefresh)
         .then(res => res.json())
         .then(data => {
-            if (data.status !== 'success') throw new Error("스캔 실패");
-            document.getElementById('screenerModeBadge').innerText = data.eval_mode;
+            if (requestScreenerTf !== screenerTf) return;
+            if (data.status === 'loading') {
+                tbody.innerHTML = '<tr><td colspan="7">관심 20종목의 시세·수급을 조회 중입니다. 첫 조회는 시간이 걸릴 수 있습니다.</td></tr>';
+                setTimeout(() => { if (requestScreenerTf === screenerTf && document.getElementById('screenerPanel').classList.contains('active')) loadScreener(false); }, 3000);
+                return;
+            }
+            if (data.status !== 'success') throw new Error(data.message || "스캔 실패");
+            document.getElementById('screenerModeBadge').innerText = data.eval_mode + ' · 실패 ' + data.failed_count + '종목';
             renderScreenerTable(data.items);
         })
         .catch(err => {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">
-                자동분석 데이터를 불러오지 못했습니다. run.bat가 실행 중인지 확인해 주세요.</td></tr>`;
+                자동분석 조회 실패. 토스 API 키·허용 IP와 서버 상태를 확인하세요.</td></tr>`;
         });
 }
 
@@ -590,15 +719,16 @@ function renderScreenerTable(items) {
         else scoreBadge = `<span class="tag-score-1">★ 관심타점 (1점)</span>`;
         
         const reasonsStr = (it.reasons && it.reasons.length > 0) ? it.reasons.join(', ') : '타점 대기/관찰';
+        scoreBadge = '<span>종합 ' + (it.combined ?? '보류') + '/100 · 기술 ' + it.score + '/3</span>';
         const formattedVol = it.volume ? Math.round(it.volume).toLocaleString() + ' 주' : '-';
         
-        html += `<tr onclick="selectFromScreener('${it.code}', '${it.name}', '${screenerTf}')">
+        html += `<tr onclick="selectFromScreener('${it.code}', '', '${screenerTf}')">
             <td style="text-align: center; font-weight: 800;">${it.rank}위</td>
-            <td><span class="stock-click-link">${it.name}</span> <span style="font-size: 11px; color: var(--text-sub);">(${it.code})</span></td>
+            <td><span class="stock-click-link">${escapeHtml(it.name)}</span> <span style="font-size: 11px; color: var(--text-sub);">(${it.code})</span></td>
             <td style="text-align: right; font-weight: 700;">${it.price ? it.price.toLocaleString() : '-'} 원</td>
             <td style="text-align: right; color: #f8fafc; font-weight: 700;">${formattedVol}</td>
             <td style="text-align: center;">${scoreBadge}</td>
-            <td style="color: #93c5fd;">${reasonsStr}</td>
+            <td style="color: #93c5fd;">${escapeHtml(reasonsStr)}</td>
             <td style="text-align: center; font-size: 11px; color: var(--text-sub);">${it.eval_date || '-'}</td>
         </tr>`;
     });
@@ -637,7 +767,7 @@ function renderTopVolumeButtons(items) {
     items.forEach((item, idx) => {
         const btn = document.createElement('button');
         btn.className = 'btn-top-vol';
-        btn.innerHTML = `<span class="rank-tag">${idx + 1}위</span> ${item.name}`;
+        btn.textContent = item.name;
         btn.onclick = () => selectStock(item.code, item.name);
         container.appendChild(btn);
     });
@@ -731,12 +861,14 @@ function loadData() {
     document.getElementById('targetBadge').innerText = "통신 중...";
     document.getElementById('targetBadge').className = "badge badge-hold";
     
+    const requestCode = stockCode, requestTf = timeframe;
     fetch('/api/chart?code=' + encodeURIComponent(stockCode) + '&tf=' + encodeURIComponent(timeframe))
         .then(res => {
             if (!res.ok) throw new Error("네이버 증권 서버 통신 에러");
             return res.json();
         })
         .then(data => {
+            if (requestCode !== stockCode || requestTf !== timeframe) return;
             if (data.status !== 'success') {
                 showError(data.message || "데이터 조회 실패");
                 return;
@@ -744,24 +876,30 @@ function loadData() {
             stockName = data.meta.name;
             stockCode = data.meta.code;
             document.getElementById('codeInput').value = stockCode;
-            document.getElementById('envNotice').innerText = "🟢 네이버 금융 실시간 실제 시세 연동";
+            document.getElementById('envNotice').innerText = data.meta.source + ' · 데이터 기준 시각 확인';
             document.getElementById('envNotice').style.color = "#34d399";
             candlesData = data.analysis;
+            renderFlow(data);
+            if (liveOpen) refreshLive();
             renderAll();
         })
         .catch(err => {
-            showError("실시간 서버 미구동 상태입니다. run.bat를 실행해 주세요!");
+            if (requestCode !== stockCode || requestTf !== timeframe) return;
+            showError("시세 조회 실패. 토스 API 설정·허용 IP 또는 서버 연결을 확인하세요.");
         });
 }
 
 function showError(msg) {
+    document.getElementById('flowSignal').textContent = '데이터 연결 실패 · 종합판정 보류';
+    document.getElementById('flowMetrics').replaceChildren();
+    document.getElementById('flowMeta').textContent = msg;
     document.getElementById('targetPrice').innerText = "연결 필요";
     document.getElementById('targetDateBadge').innerText = "기준일: 확인 불가";
     const badge = document.getElementById('targetBadge');
     badge.className = "badge badge-error";
     badge.innerText = "서버 연결 점검";
     document.getElementById('targetVerdict').innerText = msg;
-    document.getElementById('envNotice').innerText = "🔴 실시간 연결 점검 필요 (run.bat 확인)";
+    document.getElementById('envNotice').innerText = "🔴 데이터 연결 점검 필요";
     document.getElementById('envNotice').style.color = "#ef4444";
     
     const c1 = document.getElementById('mainCanvas');
@@ -770,7 +908,7 @@ function showError(msg) {
     ctx1.fillStyle = "#ef4444";
     ctx1.font = "14px sans-serif";
     ctx1.textAlign = "center";
-    ctx1.fillText("네이버 금융 실제 데이터를 수신하려면 폴더 내 run.bat를 실행해 주세요.", c1.width / 2, 200);
+    ctx1.fillText("토스증권 API 실제 데이터를 수신하려면 폴더 내 run.bat를 실행해 주세요.", c1.width / 2, 200);
 }
 
 function renderAll() {

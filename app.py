@@ -1,327 +1,177 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-네이버 금융 실시간 시세 연동 및 실시간 자동분석(스크리너) 서버
-- 멀티스레드 비동기 소켓 처리
-- 정규장 시간(09:00~15:30) 전일 완성봉 / 장마감 후 금일 완성봉 자동 판별
-- 일봉/주봉/월봉 타점 조건 부합 종목 거래량 순 TOP 20 실시간 스캔
-"""
-
-import os
-import sys
+"""Private, read-only market analysis server. Configure secrets in server environment."""
+import base64
+import hmac
 import json
-import socket
-import datetime
+import os
+import threading
 import time
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from socketserver import ThreadingMixIn
-from concurrent.futures import ThreadPoolExecutor
-import webbrowser
-import threading
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from naver_connector import NaverFinanceConnector
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from algorithm import analyze_signals
+from toss_connector import TossConnector, DataError, now_kst
+from flow_analysis import flow_score, scalp_analysis
+from live_stream import LiveStream
 
-PORT = 8080
-naver_conn = NaverFinanceConnector()
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = Path(__file__).resolve().parent
+connector = TossConnector()
+live = LiveStream(connector)
+WATCH = [('005930','삼성전자'),('000660','SK하이닉스'),('005380','현대차'),
+         ('000270','기아'),('035420','NAVER'),('035720','카카오'),('105560','KB금융'),
+         ('055550','신한지주'),('068270','셀트리온'),('005490','POSCO홀딩스'),
+         ('012330','현대모비스'),('373220','LG에너지솔루션'),('207940','삼성바이오로직스'),
+         ('066570','LG전자'),('015760','한국전력'),('033780','KT&G'),
+         ('003670','포스코퓨처엠'),('247540','에코프로비엠'),('086520','에코프로'),('069500','KODEX 200')]
+screen_lock = threading.Lock()
+screen_states = {}
 
-class StockScreener:
-    def __init__(self, connector, analyze_func):
-        self.connector = connector
-        self.analyze_signals = analyze_func
-        self.cache = {}
-        self.cache_time = {}
-        self.cache_ttl = 300 # 5분 캐시
+def chart(code, tf):
+    raw = connector.get_chart_data(code, tf, count=250 if tf == 'D' else 150)
+    analysis = analyze_signals(raw['candles'], tf)
+    if not analysis:
+        raise DataError('분석에 필요한 25개 이상의 봉이 없습니다.')
+    latest = analysis[-1]
+    try:
+        # Use unadjusted daily volume: investor net quantities are actual shares.
+        daily = connector.candles(raw['code'], count=30, adjusted=False)
+        flow = flow_score(connector.flow(raw['code']), daily, latest['score'],
+                          as_of=raw['candles'][-1]['timestamp'][:10])
+        if flow.get('date') and flow['date'] != raw['candles'][-1]['timestamp'][:10]:
+            flow['combined'] = None
+            flow['reason'] = '최신 캔들과 수급 기준일이 다름 · 종합판정 보류'
+    except DataError as exc:
+        flow = {'available': False, 'combined': None, 'reason': str(exc)}
+    missing = [p for p in (60,120,200) if len(analysis) < p]
+    return {'status': 'success', 'meta': {k: raw[k] for k in ('code','name','timeframe','source')},
+            'analysis': analysis, 'flow': flow, 'received_at': raw['received_at'],
+            'history_note': ('시세 이력 부족: ' + ', '.join(str(p)+'봉 이평선' for p in missing)) if missing else '',
+            'bar_note': '최신봉은 진행 중일 수 있습니다. 과거 차트 화살표는 기존 기술적 지표만 사용합니다.'}
 
-    def is_market_hours(self):
-        """한국 정규장 시간(09:00 ~ 15:30, 월~금) 여부 판별"""
-        now = datetime.datetime.now()
-        if now.weekday() >= 5: # 토요일(5), 일요일(6)
-            return False
-        current_minutes = now.hour * 60 + now.minute
-        return 9 * 60 <= current_minutes < 15 * 60 + 30
-
-    def get_candidate_universe(self):
-        """
-        코스피/코스닥 대표 우량주, 고유동성 ETF 및 거래량 상위 종목 풀
-        (풍부한 거래량 기반으로 작전세력 리스크 최소화)
-        """
-        core_list = [
-            ('005930', '삼성전자'), ('000660', 'SK하이닉스'), ('005380', '현대차'),
-            ('000270', '기아'), ('035720', '카카오'), ('035420', 'NAVER'),
-            ('105560', 'KB금융'), ('055550', '신한지주'), ('316140', '우리금융지주'),
-            ('086790', '하나금융지주'), ('122630', 'KODEX 레버리지'), ('252670', 'KODEX 200선물인버스2X'),
-            ('102110', 'TIGER 200'), ('229200', 'KODEX 코스닥150'), ('233740', 'KODEX 코스닥150레버리지'),
-            ('068270', '셀트리온'), ('005490', 'POSCO홀딩스'), ('028260', '삼성물산'),
-            ('012330', '현대모비스'), ('441640', '미국배당다우존스'), ('373220', 'LG에너지솔루션'),
-            ('207940', '삼성바이오로직스'), ('066570', 'LG전자'), ('096770', 'SK이노베이션'),
-            ('015760', '한국전력'), ('033780', 'KT&G'), ('003670', '포스코퓨처엠'),
-            ('247540', '에코프로비엠'), ('086520', '에코프로'), ('196170', '알테오젠'),
-            ('069500', 'KODEX 200'), ('360750', 'TIGER 미국S&P500'), ('133690', 'TIGER 미국나스닥100'),
-            ('009150', '삼성전기'), ('018260', '삼성에스디에스'), ('003550', 'LG'),
-            ('032830', '삼성생명'), ('138040', '메리츠금융지주'), ('010130', '고려아연')
-        ]
-        
+def scan_worker(tf):
+    items, failed = [], 0
+    for code, _ in WATCH:
         try:
-            vol_stocks = self.connector.get_top_volume_stocks(limit=10)
+            data = chart(code, tf)
+            last = data['analysis'][-1]
+            flow = data['flow']
+            items.append({'code': code, 'name': data['meta']['name'], 'price': last['close'],
+                          'volume': last['volume'], 'score': last['score'], 'signal': last['signal'],
+                          'reasons': last['reasons_buy'], 'eval_date': last['date'],
+                          'combined': flow.get('combined'), 'flow_score': flow.get('score'),
+                          'flow_date': flow.get('date'), 'provisional': flow.get('provisional')})
         except Exception:
-            vol_stocks = []
-            
-        seen = set()
-        universe = []
-        for item in vol_stocks:
-            c, n = item['code'], item['name']
-            if c not in seen:
-                seen.add(c)
-                universe.append((c, n))
-        for c, n in core_list:
-            if c not in seen:
-                seen.add(c)
-                universe.append((c, n))
-        return universe
+            failed += 1
+    # Missing flow never gets promoted above a complete composite score.
+    items.sort(key=lambda x: (x['combined'] is not None, x['combined'] or 0, x['score'], x['volume']), reverse=True)
+    for n, item in enumerate(items, 1):
+        item['rank'] = n
+    with screen_lock:
+        screen_states[tf] = {'status': 'success' if items else 'error',
+                            'message': '시세·수급 조회 실패. 키와 허용 IP를 확인하세요.' if not items else '',
+                            'items': items, 'eval_mode': '최신봉 + 최신 수급 · 당일 잠정치 포함',
+                            'updated_at': now_kst().isoformat(), 'total_screened': len(WATCH),
+                            'failed_count': failed, 'ts': time.monotonic()}
 
-    def screen(self, timeframe='D', limit=20, force_refresh=False):
-        now_ts = time.time()
-        if not force_refresh and timeframe in self.cache:
-            if now_ts - self.cache_time.get(timeframe, 0) < self.cache_ttl:
-                return self.cache[timeframe]
+def screen(tf, refresh=False):
+    with screen_lock:
+        current = screen_states.get(tf)
+        if current and current['status'] == 'loading':
+            return {'status': 'loading'}
+        if current and not refresh and time.monotonic() - current['ts'] < 60:
+            return {k:v for k,v in current.items() if k != 'ts'}
+        screen_states[tf] = {'status': 'loading'}
+        threading.Thread(target=scan_worker, args=(tf,), daemon=True).start()
+        return {'status': 'loading'}
 
-        universe = self.get_candidate_universe()
-        market_hours = self.is_market_hours()
-        today_str = datetime.date.today().strftime('%Y-%m-%d')
-        
-        def evaluate_one(item):
-            code, name = item
-            try:
-                raw = self.connector.get_chart_data(code, timeframe=timeframe, count=150)
-                candles = raw['candles']
-                if not candles or len(candles) < 25:
-                    return None
-                    
-                # 핵심 요구사항: 장중에는 전일까지 캔들바로, 장마감 후에는 금일기준 캔들바로 평가
-                if market_hours and candles[-1]['date'] == today_str and len(candles) > 30:
-                    eval_candles = candles[:-1] # 전일 완성봉 기준
-                    eval_mode = "장중 (전일 종가 완성봉 기준)"
-                else:
-                    eval_candles = candles # 금일 완성봉 기준
-                    eval_mode = "장마감 (금일 종가 완성봉 기준)" if not market_hours else "장중 (완성봉 기준)"
-                    
-                analysis = self.analyze_signals(eval_candles, timeframe=timeframe)
-                if not analysis:
-                    return None
-                    
-                target = analysis[-1]
-                return {
-                    'code': code,
-                    'name': raw['name'],
-                    'price': target['close'],
-                    'volume': target['volume'],
-                    'score': target['score'],
-                    'signal': target['signal'],
-                    'reasons': target['reasons_buy'],
-                    'eval_date': target['date'],
-                    'eval_mode': eval_mode,
-                    'timeframe': timeframe
-                }
-            except Exception:
-                return None
-                
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            results = [r for r in ex.map(evaluate_one, universe) if r is not None]
-            
-        # 순위 정렬: 타점 조건 만족 종목(score >= 2 우선, 그 다음 score == 1)을 거래량(volume) 순으로 정렬
-        tier1 = [r for r in results if r['score'] >= 2]
-        tier2 = [r for r in results if r['score'] == 1]
-        tier3 = [r for r in results if r['score'] == 0]
-        
-        tier1.sort(key=lambda x: x['volume'], reverse=True)
-        tier2.sort(key=lambda x: x['volume'], reverse=True)
-        tier3.sort(key=lambda x: x['volume'], reverse=True)
-        
-        final_list = tier1 + tier2
-        if len(final_list) < limit:
-            final_list += tier3
-            
-        final_list = final_list[:limit]
-        for i, item in enumerate(final_list):
-            item['rank'] = i + 1
-            
-        eval_mode_desc = "장중 분석 모드 (전일 종가 완성봉 기준 / 09:00~15:30)" if market_hours else "장마감 확정 모드 (금일 종가 완성봉 기준)"
-        
-        output = {
-            'status': 'success',
-            'timeframe': timeframe,
-            'market_hours': market_hours,
-            'eval_mode': eval_mode_desc,
-            'total_screened': len(universe),
-            'updated_at': datetime.datetime.now().strftime('%H:%M:%S'),
-            'items': final_list
-        }
-        
-        self.cache[timeframe] = output
-        self.cache_time[timeframe] = now_ts
-        return output
+class Handler(BaseHTTPRequestHandler):
+    def headers_common(self):
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('X-Frame-Options', 'DENY')
 
-screener_agent = StockScreener(naver_conn, analyze_signals)
-
-class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
-class NaverAppHandler(BaseHTTPRequestHandler):
-    def send_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_cors_headers()
+    def json(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        self.send_response(status)
+        self.headers_common()
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def authenticated(self):
+        user = os.getenv('APP_USERNAME', '')
+        password = os.getenv('APP_PASSWORD', '')
+        if not user or len(password) < 12:
+            self.json({'status':'error', 'message':'서버에 개인용 로그인 APP_USERNAME과 12자 이상 APP_PASSWORD를 설정하세요.'}, 503)
+            return False
+        try:
+            kind, encoded = self.headers.get('Authorization', '').split(' ', 1)
+            if kind.lower() != 'basic':
+                raise ValueError()
+            provided = base64.b64decode(encoded, validate=True)
+            expected = (user + ':' + password).encode('utf-8')
+            valid = hmac.compare_digest(provided, expected)
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:
+            self.send_response(401)
+            self.headers_common()
+            self.send_header('WWW-Authenticate', 'Basic realm="Private market analysis", charset="UTF-8"')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+        return valid
 
     def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/api/health':
+            self.json({'status':'ok'})
+            return
+        if not self.authenticated():
+            return
         try:
-            parsed = urllib.parse.urlparse(self.path)
-            
-            # 1. 헬스체크
-            if parsed.path == '/api/health':
+            params = urllib.parse.parse_qs(parsed.query)
+            code = params.get('code', ['005930'])[0]
+            tf = params.get('tf', ['M'])[0]
+            if tf not in ('D','W','M'):
+                raise DataError('지원하지 않는 봉 주기입니다.')
+            if parsed.path in ('/','/index.html','/chart.html'):
+                body = (BASE_DIR/'chart.html').read_bytes()
                 self.send_response(200)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(b'{"status":"ok","connected":true}')
-                return
-                
-            # 2. UI 서빙
-            if parsed.path in ('/', '/index.html', '/chart.html'):
-                html_file = os.path.join(BASE_DIR, 'chart.html')
-                with open(html_file, 'rb') as f:
-                    content = f.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(content)))
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(content)
-                return
-                
-            # 3. 당일 최고 거래량 3개 종목
-            elif parsed.path == '/api/top_volume':
-                top_stocks = naver_conn.get_top_volume_stocks(limit=3)
-                payload = {'status': 'success', 'items': top_stocks}
-                body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.send_header('Content-Length', str(len(body)))
-                self.send_cors_headers()
+                self.headers_common()
+                self.send_header('Content-Type','text/html; charset=utf-8')
+                self.send_header('Content-Length',str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-                return
-
-            # 4. 실시간 자동분석 (타점 포착 TOP 20 스크리너 API)
-            elif parsed.path == '/api/screener':
-                params = urllib.parse.parse_qs(parsed.query)
-                tf = params.get('tf', ['D'])[0]
-                refresh = params.get('refresh', ['false'])[0].lower() == 'true'
-                limit = int(params.get('limit', ['20'])[0])
-                
-                screen_res = screener_agent.screen(timeframe=tf, limit=limit, force_refresh=refresh)
-                body = json.dumps(screen_res, ensure_ascii=False).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.send_header('Content-Length', str(len(body)))
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(body)
-                return
-
-            # 5. 차트 시세 및 정밀 알고리즘 분석 API
             elif parsed.path == '/api/chart':
-                params = urllib.parse.parse_qs(parsed.query)
-                code_query = params.get('code', ['005930'])[0]
-                tf = params.get('tf', ['M'])[0]
-                
-                try:
-                    raw = naver_conn.get_chart_data(code_query, timeframe=tf, count=150)
-                    analysis = analyze_signals(raw['candles'], timeframe=tf)
-                    payload = {
-                        'status': 'success',
-                        'meta': {
-                            'code': raw['code'],
-                            'name': raw['name'],
-                            'timeframe': raw['timeframe'],
-                            'source': raw['source'],
-                        },
-                        'analysis': analysis
-                    }
-                except Exception as e:
-                    payload = {'status': 'error', 'message': str(e)}
-                    
-                body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.send_header('Content-Length', str(len(body)))
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(body)
-                return
-                
+                self.json(chart(code,tf))
+            elif parsed.path == '/api/screener':
+                self.json(screen(tf, params.get('refresh',['false'])[0] == 'true'))
+            elif parsed.path == '/api/top_volume':
+                self.json({'status':'success','items':connector.get_top_volume_stocks(3)})
+            elif parsed.path == '/api/live':
+                code = connector.resolve_code(code)
+                if not connector.configured:
+                    raise DataError('서버에 토스 API 키를 설정하세요.')
+                live.select(code)
+                candles = connector.candles(code,'1m',200, adjusted=False)
+                trade, book, connected, error = live.snapshot(code)
+                result = scalp_analysis(candles,book,trade,connected)
+                result.update(stream_connected=connected, stream_message=error, code=code)
+                self.json({'status':'success','live':result})
             else:
-                self.send_response(404)
-                self.end_headers()
-        except Exception as err:
-            try:
-                self.send_response(500)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.send_cors_headers()
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'error', 'message': str(err)}).encode('utf-8'))
-            except Exception:
-                pass
+                self.json({'status':'error','message':'찾을 수 없는 경로'},404)
+        except DataError as exc:
+            self.json({'status':'error','message':str(exc)})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            self.json({'status':'error','message':'데이터 처리 오류. 데이터 형식과 서버 상태를 확인하세요.'},500)
 
-    def log_message(self, format, *args):
-        return
-
-def get_free_port(start_port=8080):
-    for p in [start_port, 8081, 8082, 8888, 5000]:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(('', p))
-            s.close()
-            return p
-        except OSError:
-            continue
-    return start_port
-
-def main():
-    env_port = os.environ.get('PORT')
-    if env_port:
-        port = int(env_port)
-    else:
-        port = get_free_port()
-    server = ThreadedHTTPServer(('', port), NaverAppHandler)
-    url = f"http://localhost:{port}"
-    print("==================================================================")
-    print(f"  [네이버 금융 실시간 연동] 자동분석 & 트리플 타점 시스템 실행 완료")
-    print(f"  접속 주소: {url}")
-    print("  * 장중(09:00~15:30) 전일 완성봉 / 장마감 후 금일 완성봉 자동 분석")
-    print("  * 일봉/주봉/월봉 타점 부합 종목 거래량 순 TOP 20 스캔 지원")
-    print("==================================================================")
-    
-    try:
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    except Exception:
+    def log_message(self, *args):
         pass
-        
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("서버를 종료합니다.")
-        server.server_close()
 
 if __name__ == '__main__':
-    main()
+    port = int(os.getenv('PORT','8080'))
+    print(f'Private timing app listening on port {port}; secrets are environment-only.')
+    ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
